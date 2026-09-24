@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yanshee — capteurs</title>
+<style>
+  :root {
+    --papier: #F6F7F4; --grille: #D9E0D6; --grille-forte: #C3CDBF;
+    --encre: #1F2A44; --encre-douce: #66718A; --encre-muette: #A6AEBE; --bande: #FFFFFF;
+    --alerte: #C62828; --alerte-fond: #FBE9E7; --ok: #2E9E5B;
+    --ultrason: #1F5FA8; --gaz: #B8452B; --vapeur: #2A8C7A; --lumiere: #C08A1E; --temp: #7B4B9E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --papier: #1B1F27; --grille: #2A3140; --grille-forte: #3A4356; --encre: #E6E9F0;
+      --encre-douce: #9AA3B5; --encre-muette: #5E6779; --bande: #222835; --alerte-fond: #3A1F1F;
+      --ultrason: #6FA3E8; --gaz: #E07A5F; --vapeur: #5CC2AE; --lumiere: #E0B04A; --temp: #B58AD6; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--papier); color: var(--encre); display: flex; flex-direction: column;
+    font: 15px/1.4 "Avenir Next", "Segoe UI", system-ui, -apple-system, sans-serif; }
+
+  header { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+    padding: 14px clamp(14px, 3vw, 40px) 10px; border-bottom: 1px solid var(--grille); }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  nav { display: flex; gap: 4px; }
+  nav button[aria-pressed="true"] { background: var(--encre); color: var(--papier); border-color: var(--encre); }
+  .liaison { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  input[type=text] { font: inherit; padding: 5px 9px; border: 1px solid var(--grille-forte); border-radius: 4px;
+    background: var(--bande); color: var(--encre); width: 12em; font-variant-numeric: tabular-nums; }
+  button { font: inherit; padding: 5px 12px; border: 1px solid var(--grille-forte); border-radius: 4px;
+    background: var(--bande); color: var(--encre); cursor: pointer; }
+  button:hover { border-color: var(--encre-douce); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--ultrason); outline-offset: 2px; }
+  button.actif { border-color: var(--ok); }
+  .etat { display: inline-flex; align-items: center; gap: 7px; color: var(--encre-douce); }
+  .etat::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--encre-muette); }
+  .etat.ok::before { background: var(--ok); } .etat.perime::before { background: var(--lumiere); } .etat.hors::before { background: var(--alerte); }
+
+  #bandeau { flex: 0 0 auto; display: none; background: var(--alerte); color: #fff; padding: 12px clamp(14px, 3vw, 40px);
+    font-size: 20px; font-weight: 600; align-items: center; gap: 14px; }
+  #bandeau.visible { display: flex; }
+  #bandeau small { font-weight: 400; font-size: 14px; opacity: .9; }
+
+  main { flex: 1 1 auto; min-height: 0; }
+  .vue { display: none; height: 100%; }
+  .vue.visible { display: grid; }
+
+  /* ---- vue d'ensemble : tuiles + fil des alertes, tient dans l'ecran ---- */
+  #ensemble { grid-template-columns: 1fr minmax(260px, 24%); gap: 14px; padding: 14px clamp(14px, 3vw, 40px) 18px; }
+  .tuiles { display: grid; grid-template-columns: repeat(2, 1fr); grid-auto-rows: 1fr; gap: 12px; min-height: 0; }
+  .tuile { background: var(--bande); border: 1px solid var(--grille); border-top: 4px solid var(--couleur);
+    padding: 12px 16px 10px; display: grid; grid-template-rows: auto 1fr auto; min-height: 0; overflow: hidden; }
+  .tuile.absente { border-top-color: var(--grille-forte); color: var(--encre-muette); }
+  .tuile.absente canvas { opacity: .3; }
+  .tuile.alerte { background: var(--alerte-fond); border-color: var(--alerte); }
+  .tuile-tete { display: flex; justify-content: space-between; align-items: baseline; }
+  .tuile-tete b { font-size: 16px; font-weight: 600; }
+  .tuile-tete span { font-size: 13px; color: var(--encre-douce); }
+  .tuile-corps { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 14px; min-height: 0; }
+  .valeur { font-size: clamp(34px, 5.5vh, 64px); line-height: 1; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .valeur small { font-size: .38em; font-weight: 400; color: var(--encre-douce); margin-left: 3px; }
+  .tuile.alerte .valeur { color: var(--alerte); }
+  .mini { width: 100%; height: 100%; min-height: 40px; }
+  .tuile-pied { font-size: 13px; color: var(--encre-douce); min-height: 1.4em; margin-top: 6px; }
+  .tuile.alerte .tuile-pied { color: var(--alerte); font-weight: 600; }
+
+  aside { background: var(--bande); border: 1px solid var(--grille); display: flex; flex-direction: column; min-height: 0; }
+  aside h2 { margin: 0; padding: 12px 16px; font-size: 15px; font-weight: 600; border-bottom: 1px solid var(--grille); display: flex; justify-content: space-between; }
+  aside h2 button { padding: 2px 8px; font-size: 13px; }
+  #fil { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+  #fil li { padding: 9px 16px; border-bottom: 1px solid var(--grille); font-size: 14px; display: grid; grid-template-columns: 52px 1fr; gap: 10px; }
+  #fil li time { color: var(--encre-douce); font-variant-numeric: tabular-nums; font-size: 13px; }
+  #fil li.grave { border-left: 4px solid var(--alerte); padding-left: 12px; }
+  #fil li.fin { color: var(--encre-douce); }
+  #fil .vide { padding: 20px 16px; color: var(--encre-douce); }
+
+  /* ---- vue courbes : enregistreur a bandes ---- */
+  #courbes { grid-template-rows: 1fr; padding: 14px clamp(14px, 3vw, 40px) 18px; overflow-y: auto; }
+  .bandes { display: flex; flex-direction: column; gap: 10px; }
+  .bande { display: grid; grid-template-columns: 140px 1fr 170px; background: var(--bande); border: 1px solid var(--grille);
+    border-left: 5px solid var(--couleur); min-height: 120px; }
+  .bande.absente { border-left-color: var(--grille-forte); color: var(--encre-muette); }
+  .bande.absente canvas { opacity: .35; }
+  .bande.alerte { border-color: var(--alerte); }
+  .nom { padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; }
+  .nom b { font-size: 16px; font-weight: 600; } .nom span { color: var(--encre-douce); font-size: 13px; }
+  .trace { border-left: 1px solid var(--grille); border-right: 1px solid var(--grille); }
+  .trace canvas { display: block; width: 100%; height: 100%; }
+  .lecture { padding: 10px 16px; display: flex; flex-direction: column; justify-content: center; text-align: right; font-variant-numeric: tabular-nums; }
+  .lecture .valeur { font-size: 36px; }
+  .lecture .detail { margin-top: 6px; color: var(--encre-douce); font-size: 13px; }
+  .bande.alerte .valeur, .bande.alerte .detail { color: var(--alerte); }
+
+  footer { flex: 0 0 auto; padding: 8px clamp(14px, 3vw, 40px); color: var(--encre-douce); font-size: 12px;
+    border-top: 1px solid var(--grille); display: flex; gap: 20px; flex-wrap: wrap; }
+  @media (max-width: 900px) {
+    #ensemble { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+    aside { max-height: 32vh; }
+    .bande { grid-template-columns: 1fr; } .trace { height: 100px; }
+  }
+  @media (prefers-reduced-motion: no-preference) { #bandeau.visible { animation: pulse 1.2s ease-in-out 3; } }
+  @keyframes pulse { 50% { filter: brightness(1.15); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Yanshee — capteurs</h1>
+  <nav>
+    <button data-vue="ensemble" aria-pressed="true">Vue d'ensemble</button>
+    <button data-vue="courbes" aria-pressed="false">Courbes</button>
+  </nav>
+  <div class="liaison">
+    <input id="ip" type="text" value="192.168.43.206:8080" spellcheck="false" aria-label="adresse du robot">
+    <button id="connecter">Connecter</button>
+    <button id="son" title="bip sonore sur alerte">Son</button>
+    <button id="notif" title="notification systeme sur alerte">Notifications</button>
+    <button id="exporter">CSV</button>
+    <span id="etat" class="etat">en attente</span>
+  </div>
+</header>
+
+<div id="bandeau" role="alert"><span id="bandeau-texte"></span><small id="bandeau-depuis"></small></div>
+
+<main>
+  <section id="ensemble" class="vue visible">
+    <div class="tuiles" id="tuiles"></div>
+    <aside>
+      <h2>Alertes <button id="effacer">Effacer</button></h2>
+      <ul id="fil"><li class="vide">Aucune alerte pour l'instant.</li></ul>
+    </aside>
+  </section>
+  <section id="courbes" class="vue"><div class="bandes" id="bandes"></div></section>
+</main>
+
+<footer>
+  <span id="compteur">0 mesures</span>
+  <span>Trait rouge : seuil qui agit. Tirets : ligne de base des 30 premières secondes.</span>
+  <span>Gaz, vapeur, lumière : % de 5 V, sans unité physique.</span>
+  <span>Touches 1 / 2 : changer de vue.</span>
+</footer>
+
+<script>
+(() => {
+  const FENETRE_S = 300, MINI_S = 60, PERIODE_MS = 500, VOTES = 3, LIAISON_PERDUE_MS = 3000;
+
+  // ------------------------------------------------------------- voies
+  const VOIES = [
+    { cle: "c", nom: "Ultrason", sous: "distance devant", couleur: "--ultrason", unite: "cm",
+      min: 0, max: 400, seuil: 40, seuilTexte: "frein à 40 cm", notifier: false,
+      lire: b => b.c === undefined ? null : (b.c < 0 ? 400 : b.c),
+      format: v => v >= 400 ? "> 400" : String(Math.round(v)),
+      detail: v => v >= 400 ? "rien à moins de 4 m" : (v < 40 ? "obstacle : le réflexe freine" : "voie libre"),
+      danger: v => v < 40, message: v => `Obstacle à ${Math.round(v)} cm` },
+    { cle: "gaz", nom: "Gaz", sous: "MQ · variation vs repos", couleur: "--gaz", unite: "%",
+      min: 0, max: 100, base: true, ratio: 1.4, notifier: true,
+      lire: b => b.gaz === undefined ? null : b.gaz * 100 / 1023,
+      format: v => v.toFixed(0),
+      detail: (v, base) => base === undefined ? "ligne de base en cours (30 s)…" : `× ${(v / base).toFixed(2)} du repos`,
+      danger: (v, base) => base !== undefined && v > base * 1.4,
+      message: (v, base) => `Gaz détecté : × ${(v / base).toFixed(1)} du niveau de repos` },
+    { cle: "vapeur", nom: "Vapeur", sous: "steam sensor", couleur: "--vapeur", unite: "%",
+      min: 0, max: 100, seuil: 29, seuilTexte: "alerte à 29 %", notifier: true,
+      lire: b => b.vapeur === undefined ? null : b.vapeur * 100 / 1023,
+      format: v => v.toFixed(0),
+      detail: v => v < 6 ? "sec" : (v > 29 ? "humidité détectée" : "légèrement humide"),
+      danger: v => v > 29, message: v => `Humidité / vapeur : ${v.toFixed(0)} %` },
+    { cle: "lum", nom: "Lumière", sous: "photorésistance", couleur: "--lumiere", unite: "%",
+      min: 0, max: 100, notifier: false,
+      lire: b => b.lum === undefined ? null : b.lum * 100 / 1023,
+      format: v => v.toFixed(0), detail: () => "lux non calibrés", danger: () => false, message: () => "" },
+    { cle: "temp", nom: "Température", sous: "thermistance", couleur: "--temp", unite: "°C",
+      min: 10, max: 40, base: true, delta: 5, notifier: true,
+      lire: b => b.temp === undefined ? null : b.temp,
+      format: v => v.toFixed(1),
+      detail: (v, base) => base === undefined ? "ambiante en cours (30 s)…" : `${v - base >= 0 ? "+" : ""}${(v - base).toFixed(1)} °C vs ambiante`,
+      danger: (v, base) => base !== undefined && v > base + 5,
+      message: (v, base) => `Chaleur : +${(v - base).toFixed(1)} °C au-dessus de l'ambiante` },
+  ];
+
+  // ------------------------------------------------------------- état
+  const series = {}, bases = {}, votes = {}, actives = {}, journal = [];
+  let ip = localStorage.getItem("yanshee_ip") || document.getElementById("ip").value;
+  let minuteur = null, debut = Date.now(), derniereTrame = {}, derniereFraiche = 0, liaisonPerdue = false;
+  let son = localStorage.getItem("yanshee_son") === "1";
+  let notif = localStorage.getItem("yanshee_notif") === "1" && "Notification" in window && Notification.permission === "granted";
+  document.getElementById("ip").value = ip;
+
+  // ------------------------------------------------------------- DOM
+  const css = () => getComputedStyle(document.documentElement);
+  const tuiles = {}, bandes = {};
+  for (const v of VOIES) {
+    series[v.cle] = []; votes[v.cle] = [];
+    const t = document.createElement("article");
+    t.className = "tuile absente"; t.style.setProperty("--couleur", `var(${v.couleur})`);
+    t.innerHTML = `<div class="tuile-tete"><b>${v.nom}</b><span>${v.sous}</span></div>
+      <div class="tuile-corps"><div class="valeur">—</div><canvas class="mini"></canvas></div>
+      <div class="tuile-pied">non détecté</div>`;
+    document.getElementById("tuiles").appendChild(t);
+    tuiles[v.cle] = { el: t, valeur: t.querySelector(".valeur"), pied: t.querySelector(".tuile-pied"), canvas: t.querySelector("canvas") };
+
+    const b = document.createElement("article");
+    b.className = "bande absente"; b.style.setProperty("--couleur", `var(${v.couleur})`);
+    b.innerHTML = `<div class="nom"><b>${v.nom}</b><span>${v.sous}</span></div><div class="trace"><canvas></canvas></div>
+      <div class="lecture"><div class="valeur">—</div><div class="detail">non détecté</div></div>`;
+    document.getElementById("bandes").appendChild(b);
+    bandes[v.cle] = { el: b, valeur: b.querySelector(".valeur"), detail: b.querySelector(".detail"), canvas: b.querySelector("canvas") };
+  }
+
+  // ------------------------------------------------------------- lecture
+  async function lire() {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 900);
+    let b = null;
+    try {
+      const rep = await fetch(`http://${ip}/capteurs`, { signal: ctrl.signal, cache: "no-store" });
+      b = await rep.json();
+      if (b.perime) { etat("perime", "robot joignable, Arduino muet"); b = null; }
+      else etat("ok", `connecté · ${Math.round((b.age || 0) * 1000)} ms`);
+    } catch (e) { etat("hors", `injoignable : ${ip}`); }
+    clearTimeout(t);
+
+    const maintenant = Date.now();
+    if (b) {
+      derniereFraiche = maintenant; derniereTrame = b;
+      if (liaisonPerdue) { liaisonPerdue = false; evenement("Liaison rétablie", false, true); }
+      const ligne = { t: maintenant };
+      for (const v of VOIES) {
+        const val = v.lire(b); if (val === null) continue;
+        ligne[v.cle] = b[v.cle];
+        const s = series[v.cle]; s.push({ t: maintenant, v: val });
+        while (s.length && maintenant - s[0].t > FENETRE_S * 1000) s.shift();
+        if (v.base && bases[v.cle] === undefined && maintenant - debut > 30000) {
+          const e = s.filter(p => maintenant - p.t <= 30000).map(p => p.v).sort((x, y) => x - y);
+          if (e.length > 10) { bases[v.cle] = e[e.length >> 1]; evenement(`${v.nom} : ligne de base fixée à ${v.format(bases[v.cle])} ${v.unite}`, false, false); }
+        }
+        surveiller(v, val);
+      }
+      journal.push(ligne);
+    } else if (!liaisonPerdue && derniereFraiche && maintenant - derniereFraiche > LIAISON_PERDUE_MS) {
+      liaisonPerdue = true; alerter("liaison", "Liaison perdue : robot injoignable ou Arduino muet", true);
+    }
+    dessinerTout();
+  }
+
+  function surveiller(v, val) {
+    const d = !!v.danger(val, bases[v.cle]);
+    const vs = votes[v.cle]; vs.push(d); if (vs.length > VOTES) vs.shift();
+    if (vs.length < VOTES) return;
+    if (!actives[v.cle] && vs.every(x => x)) alerter(v.cle, v.message(val, bases[v.cle]), v.notifier);
+    else if (actives[v.cle] && vs.every(x => !x)) { delete actives[v.cle]; evenement(`${v.nom} : retour à la normale`, false, false, true); majBandeau(); }
+  }
+
+  // ------------------------------------------------------------- alertes
+  function alerter(cle, message, notifier) {
+    actives[cle] = { message, depuis: Date.now() };
+    evenement(message, true, notifier);
+    majBandeau();
+  }
+  function evenement(texte, grave, notifier, fin) {
+    const fil = document.getElementById("fil"); fil.querySelector(".vide")?.remove();
+    const li = document.createElement("li"); li.className = (grave ? "grave" : "") + (fin ? " fin" : "");
+    const h = new Date(); li.innerHTML = `<time>${h.toTimeString().slice(0, 8)}</time><span>${texte}</span>`;
+    fil.prepend(li); while (fil.children.length > 60) fil.lastChild.remove();
+    if (grave && notifier) {
+      if (son) bip();
+      if (notif && document.visibilityState !== "visible") new Notification("Yanshee", { body: texte, tag: texte, silent: !son });
+      else if (notif) new Notification("Yanshee", { body: texte, tag: texte, silent: true });
+    }
+  }
+  function majBandeau() {
+    const cles = Object.keys(actives), el = document.getElementById("bandeau");
+    if (!cles.length) { el.classList.remove("visible"); return; }
+    const a = actives[cles[cles.length - 1]];
+    document.getElementById("bandeau-texte").textContent = a.message;
+    document.getElementById("bandeau-depuis").textContent = cles.length > 1 ? `+ ${cles.length - 1} autre(s)` : "";
+    el.classList.add("visible");
+  }
+  let audio = null;
+  function bip() {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = "square"; o.frequency.value = 880; g.gain.value = 0.08;
+      o.connect(g); g.connect(audio.destination); o.start();
+      o.frequency.setValueAtTime(660, audio.currentTime + 0.15); o.stop(audio.currentTime + 0.3);
+    } catch (e) {}
+  }
+
+  // ------------------------------------------------------------- dessin
+  function dessinerTout() {
+    const b = derniereTrame;
+    for (const v of VOIES) {
+      const present = b[v.cle] !== undefined, s = series[v.cle], base = bases[v.cle], enAlerte = !!actives[v.cle];
+      for (const ui of [tuiles[v.cle], bandes[v.cle]]) {
+        ui.el.classList.toggle("absente", !present); ui.el.classList.toggle("alerte", enAlerte);
+        if (!present) { ui.valeur.textContent = "—"; (ui.pied || ui.detail).textContent = "non détecté"; }
+        else {
+          const val = v.lire(b);
+          ui.valeur.innerHTML = `${v.format(val)}<small>${v.unite}</small>`;
+          (ui.pied || ui.detail).textContent = enAlerte ? actives[v.cle].message : v.detail(val, base);
+        }
+      }
+      dessiner(v, s, tuiles[v.cle].canvas, base, MINI_S, true);
+      dessiner(v, s, bandes[v.cle].canvas, base, FENETRE_S, false);
+    }
+    document.getElementById("compteur").textContent = `${journal.length} mesures`;
+    const dep = document.getElementById("bandeau-depuis"); const cles = Object.keys(actives);
+    if (cles.length === 1) dep.textContent = `depuis ${Math.round((Date.now() - actives[cles[0]].depuis) / 1000)} s`;
+  }
+
+  function dessiner(v, s, canvas, base, fenetreS, mini) {
+    const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+    if (!W || !H) return;
+    if (canvas.width !== W * dpr || canvas.height !== H * dpr) { canvas.width = W * dpr; canvas.height = H * dpr; }
+    const g = canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const st = css(), grille = st.getPropertyValue("--grille").trim(), forte = st.getPropertyValue("--grille-forte").trim(),
+      couleur = st.getPropertyValue(v.couleur).trim(), alerte = st.getPropertyValue("--alerte").trim(), douce = st.getPropertyValue("--encre-douce").trim();
+    const maintenant = Date.now(), pts = s.filter(p => maintenant - p.t <= fenetreS * 1000);
+    let min = v.min, max = v.max;
+    if (pts.length && v.cle !== "c") {
+      const vals = pts.map(p => p.v), lo = Math.min(...vals), hi = Math.max(...vals);
+      if (hi - lo < (max - min) * 0.25) { const c = (lo + hi) / 2, demi = Math.max((max - min) * 0.125, 1); min = Math.max(v.min, c - demi); max = Math.min(v.max, c + demi); }
+    }
+    const marge = mini ? 4 : 8;
+    const y = val => H - marge - ((val - min) / (max - min)) * (H - 2 * marge), x = t => W - ((maintenant - t) / (fenetreS * 1000)) * W;
+
+    g.lineWidth = 1;
+    const pas = mini ? 10 : 10;
+    for (let sec = 0; sec <= fenetreS; sec += pas) {
+      const xx = Math.round(x(maintenant - sec * 1000)) + .5;
+      g.strokeStyle = sec % (mini ? 30 : 60) === 0 ? forte : grille; g.beginPath(); g.moveTo(xx, 0); g.lineTo(xx, H); g.stroke();
+    }
+    if (!mini) {
+      g.strokeStyle = grille;
+      for (let q = 0; q <= 4; q++) { const yy = Math.round(marge + (H - 2 * marge) * q / 4) + .5; g.beginPath(); g.moveTo(0, yy); g.lineTo(W, yy); g.stroke(); }
+      g.fillStyle = douce; g.font = "11px system-ui, sans-serif"; g.textBaseline = "top"; g.fillText(v.format(max), 4, 2);
+      g.textBaseline = "bottom"; g.fillText(v.format(min), 4, H - 2);
+    }
+    if (v.seuil !== undefined && v.seuil >= min && v.seuil <= max) {
+      g.strokeStyle = alerte; g.beginPath(); g.moveTo(0, y(v.seuil) + .5); g.lineTo(W, y(v.seuil) + .5); g.stroke();
+      if (!mini) { g.fillStyle = alerte; g.textAlign = "right"; g.textBaseline = "bottom"; g.fillText(v.seuilTexte, W - 4, y(v.seuil) - 2); g.textAlign = "left"; }
+    }
+    if (base !== undefined) {
+      g.strokeStyle = douce; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(0, y(base) + .5); g.lineTo(W, y(base) + .5); g.stroke(); g.setLineDash([]);
+      const s2 = v.ratio ? base * v.ratio : (v.delta ? base + v.delta : null);
+      if (s2 !== null && s2 <= max) { g.strokeStyle = alerte; g.beginPath(); g.moveTo(0, y(s2) + .5); g.lineTo(W, y(s2) + .5); g.stroke(); }
+    }
+    if (pts.length < 2) return;
+    g.strokeStyle = couleur; g.lineWidth = mini ? 1.6 : 1.8; g.lineJoin = "round"; g.beginPath();
+    pts.forEach((p, i) => { const px = x(p.t), py = Math.max(1, Math.min(H - 1, y(p.v))); i ? g.lineTo(px, py) : g.moveTo(px, py); });
+    g.stroke();
+    const d = pts[pts.length - 1]; g.fillStyle = couleur; g.beginPath(); g.arc(x(d.t), Math.max(1, Math.min(H - 1, y(d.v))), mini ? 2.5 : 3, 0, Math.PI * 2); g.fill();
+  }
+
+  // ------------------------------------------------------------- commandes
+  function etat(classe, texte) { const e = document.getElementById("etat"); e.className = "etat " + classe; e.textContent = texte; }
+  function connecter() {
+    ip = document.getElementById("ip").value.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+    if (!/:\d+$/.test(ip)) ip += ":8080";
+    document.getElementById("ip").value = ip; localStorage.setItem("yanshee_ip", ip);
+    for (const k in series) series[k] = []; for (const k in bases) delete bases[k]; for (const k in actives) delete actives[k];
+    journal.length = 0; debut = Date.now(); derniereFraiche = 0; liaisonPerdue = false; majBandeau();
+    etat("", "connexion…"); clearInterval(minuteur); minuteur = setInterval(lire, PERIODE_MS); lire();
+  }
+  function vue(nom) {
+    for (const s of document.querySelectorAll(".vue")) s.classList.toggle("visible", s.id === nom);
+    for (const b of document.querySelectorAll("nav button")) b.setAttribute("aria-pressed", String(b.dataset.vue === nom));
+    dessinerTout();
+  }
+  function majBoutons() {
+    document.getElementById("son").classList.toggle("actif", son);
+    document.getElementById("son").textContent = son ? "Son activé" : "Son";
+    document.getElementById("notif").classList.toggle("actif", notif);
+    document.getElementById("notif").textContent = notif ? "Notifications activées" : "Notifications";
+  }
+  document.getElementById("connecter").onclick = connecter;
+  document.getElementById("ip").onkeydown = e => { if (e.key === "Enter") connecter(); };
+  document.querySelectorAll("nav button").forEach(b => b.onclick = () => vue(b.dataset.vue));
+  document.addEventListener("keydown", e => { if (e.target.tagName === "INPUT") return; if (e.key === "1") vue("ensemble"); if (e.key === "2") vue("courbes"); });
+  document.getElementById("son").onclick = () => { son = !son; localStorage.setItem("yanshee_son", son ? "1" : "0"); if (son) bip(); majBoutons(); };
+  document.getElementById("notif").onclick = async () => {
+    if (!("Notification" in window)) { evenement("Ce navigateur ne gère pas les notifications système", false, false); return; }
+    if (notif) { notif = false; }
+    else {
+      const p = await Notification.requestPermission();
+      notif = p === "granted";
+      if (!notif) evenement("Notifications refusées par le navigateur : à autoriser dans ses réglages", false, false);
+      else new Notification("Yanshee", { body: "Les alertes arriveront ici, même fenêtre en arrière-plan.", silent: true });
+    }
+    localStorage.setItem("yanshee_notif", notif ? "1" : "0"); majBoutons();
+  };
+  document.getElementById("effacer").onclick = () => { document.getElementById("fil").innerHTML = '<li class="vide">Aucune alerte pour l\'instant.</li>'; };
+  document.getElementById("exporter").onclick = () => {
+    const cles = ["t", ...VOIES.map(v => v.cle)];
+    const lignes = [cles.join(","), ...journal.map(l => cles.map(k => k === "t" ? new Date(l.t).toISOString() : (l[k] ?? "")).join(","))];
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lignes.join("\n")], { type: "text/csv" }));
+    a.download = `capteurs_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`; a.click();
+  };
+  window.addEventListener("resize", dessinerTout);
+  majBoutons(); connecter();
+})();
+</script>
+</body>
+</html>
